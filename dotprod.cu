@@ -12,7 +12,7 @@
 #define VERBOSE 0
 
 __global__ void dot(float* a, float* b, float* c, unsigned int width) {
-    __shared__ int temp[ThreadsPerBlock];
+    __shared__ float temp[ThreadsPerBlock];
     temp[threadIdx.x] = a[threadIdx.x]*b[threadIdx.x];
 
     if(threadIdx.x == 0) {
