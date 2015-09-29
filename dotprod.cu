@@ -5,7 +5,7 @@
 
 // P = max power of 2 to test up to
 // i.e., test for N = 2^0, 2^1, 2^2... 2^P
-#define P 6
+#define P 12
 #define TILE_WIDTH 1
 #define ThreadsPerBlock (1<<3)
 #define BlocksPerGrid ((1<<16)-1)
@@ -24,7 +24,7 @@ __global__ void dot(float* a, float* b, float* c, unsigned int width) {
     //__syncthreads();
     if(tx == 0) {
         float sum = 0;
-        for(int i = 0; i < width; i++) {
+        for(int i = 0; i < width && i < ThreadsPerBlock; i++) {
             sum += temp[i];
         }
         c[bx] = sum;
@@ -105,8 +105,10 @@ int main(int argc, char** argv) {
         
         
         // Copy result from device to host
-        // We only care about the first element, so we only copy that
-        cudaMemcpy(h_C, d_C, sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(h_C, d_C, mem_size_C, cudaMemcpyDeviceToHost);
+        for(int i = 1; i < size_C; i++) {
+            h_C[0] += h_C[i];
+        }
 
         // Basic test
         #if VERBOSE
