@@ -5,22 +5,27 @@
 
 // P = max power of 2 to test up to
 // i.e., test for N = 2^0, 2^1, 2^2... 2^P
-#define P 8
+#define P 2
 #define TILE_WIDTH 1
 #define ThreadsPerBlock 1<<5
 #define RANDRANGE  5
-#define VERBOSE 0
+#define VERBOSE 1
 
 __global__ void dot(float* a, float* b, float* c, unsigned int width) {
     __shared__ float temp[ThreadsPerBlock];
     temp[threadIdx.x] = a[threadIdx.x]*b[threadIdx.x];
+    int offset = blockDim.x/2;
 
-    if(threadIdx.x == 0) {
-        float sum = 0;
-        for(int i = 0; i < width; i++) {
-            sum += temp[i];
+    __syncthreads();
+    while(offset != 0) {
+        if(threadIdx.x < offset) {
+            temp[threadIdx.x] += temp[threadIdx.x + offset];
         }
-        *c = sum;
+        __syncthreads();
+        offset >>= 1;
+    }
+    if(threadIdx.x == 0) {
+        c[blockIdx.x] = temp[0];
     }
 }
 
@@ -75,7 +80,7 @@ int main(int argc, char** argv) {
         cudaMalloc((void**) &d_C, mem_size_C);
 
         // Set up and perform the calculation
-        dim3 blocks_Vect(ThreadsPerBlock, ThreadsPerBlock);
+        dim3 blocks_Vect(ThreadsPerBlock);
         dim3 grid_Vect(size_Vect/ TILE_WIDTH, size_Vect/ TILE_WIDTH);
 
         dot<<< grid_Vect, blocks_Vect >>>(d_A, d_B, d_C, size_Vect);
