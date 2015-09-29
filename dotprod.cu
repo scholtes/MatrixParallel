@@ -5,7 +5,7 @@
 
 // P = max power of 2 to test up to
 // i.e., test for N = 2^0, 2^1, 2^2... 2^P
-#define P 8
+#define P 9
 #define TILE_WIDTH 1
 #define ThreadsPerBlock 1<<10
 #define BlocksPerGrid ((1<<16)-1)
@@ -23,6 +23,14 @@ __global__ void dot(float* a, float* b, float* c, unsigned int width) {
         }
         *c = sum;
     }
+}
+
+void dotprod(float* a, float* b, float* c, unsigned int width) {
+    // Set up the calculation
+    dim3 blocks_Vect(ThreadsPerBlock);
+    dim3 grid_Vect(BlocksPerGrid);
+
+    dot<<< grid_Vect, blocks_Vect >>>(a, b, c, width);
 }
 
 // Allocates a matrix with random float entries.
@@ -71,15 +79,14 @@ int main(int argc, char** argv) {
         // Allocate host memory for the result C = A dot B
         mem_size_C = sizeof(float);
         h_C = (float*) malloc(mem_size_C);
+        *h_C = 0;
 
         // Allocate device memory for the result
         cudaMalloc((void**) &d_C, mem_size_C);
 
-        // Set up and perform the calculation
-        dim3 blocks_Vect(ThreadsPerBlock);
-        dim3 grid_Vect(BlocksPerGrid);
-
-        dot<<< grid_Vect, blocks_Vect >>>(d_A, d_B, d_C, size_Vect);
+        // Perform the calculation
+        dotprod(d_A, d_B, d_C, size_Vect);
+        
         
         // Copy result from device to host
         cudaMemcpy(h_C, d_C, mem_size_C, cudaMemcpyDeviceToHost);
