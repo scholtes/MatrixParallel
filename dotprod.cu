@@ -5,32 +5,46 @@
 
 // P = max power of 2 to test up to
 // i.e., test for N = 2^0, 2^1, 2^2... 2^P
-#define P 9
+#define P 6
 #define TILE_WIDTH 1
-#define ThreadsPerBlock 1<<10
+#define ThreadsPerBlock (1<<3)
 #define BlocksPerGrid ((1<<16)-1)
 #define RANDRANGE  5
 #define VERBOSE 0
 
 __global__ void dot(float* a, float* b, float* c, unsigned int width) {
     __shared__ float temp[ThreadsPerBlock];
-    temp[threadIdx.x] = a[threadIdx.x]*b[threadIdx.x];
+    int bx = blockIdx.x;
+    int tx = threadIdx.x;
+    int index = ThreadsPerBlock*bx + tx;
 
-    if(threadIdx.x == 0) {
+    if(index < width) {
+        temp[tx] = a[index]*b[index];
+    }
+    //__syncthreads();
+    if(tx == 0) {
         float sum = 0;
         for(int i = 0; i < width; i++) {
             sum += temp[i];
         }
-        *c = sum;
+        c[bx] = sum;
     }
 }
 
-void dotprod(float* a, float* b, float* c, unsigned int width) {
+// Num subresults is the number of sub- dot products computed in the
+// GPU.  The host will add them all up.
+void dotprod(float* a, float* b, float* c, unsigned int width,
+        unsigned int num_subresults) {
     // Set up the calculation
     dim3 blocks_Vect(ThreadsPerBlock);
-    dim3 grid_Vect(BlocksPerGrid);
+    dim3 grid_Vect(num_subresults);
 
     dot<<< grid_Vect, blocks_Vect >>>(a, b, c, width);
+
+    // Perform additional sums on the host
+    //for(int i = 1; i < num_subresults; i++) {
+    //    c[0] += c[i];
+    //}
 }
 
 // Allocates a matrix with random float entries.
@@ -41,7 +55,8 @@ void randomInit(float* data, int size) {
 
 int main(int argc, char** argv) {
 
-    unsigned int size_Vect;
+    unsigned int size_Vect; // Number of elements in vectors
+    unsigned int size_C; // Number of elements in result vector
     unsigned int mem_size_Vect;
     unsigned int mem_size_C;
     float* h_A;
@@ -77,7 +92,8 @@ int main(int argc, char** argv) {
         cudaMemcpy(d_B, h_B, mem_size_Vect, cudaMemcpyHostToDevice);
 
         // Allocate host memory for the result C = A dot B
-        mem_size_C = sizeof(float);
+        size_C = 1 + size_Vect/ThreadsPerBlock;
+        mem_size_C = sizeof(float) * size_C;
         h_C = (float*) malloc(mem_size_C);
         *h_C = 0;
 
@@ -85,11 +101,12 @@ int main(int argc, char** argv) {
         cudaMalloc((void**) &d_C, mem_size_C);
 
         // Perform the calculation
-        dotprod(d_A, d_B, d_C, size_Vect);
+        dotprod(d_A, d_B, d_C, size_Vect, size_C);
         
         
         // Copy result from device to host
-        cudaMemcpy(h_C, d_C, mem_size_C, cudaMemcpyDeviceToHost);
+        // We only care about the first element, so we only copy that
+        cudaMemcpy(h_C, d_C, sizeof(float), cudaMemcpyDeviceToHost);
 
         // Basic test
         #if VERBOSE
