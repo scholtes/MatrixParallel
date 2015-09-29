@@ -5,9 +5,9 @@
 
 // P = max power of 2 to test up to
 // i.e., test for N = 2^0, 2^1, 2^2... 2^P
-#define P 12
+#define P 15
 #define TILE_WIDTH 1
-#define ThreadsPerBlock (1<<3)
+#define ThreadsPerBlock (1<<10)
 #define BlocksPerGrid ((1<<16)-1)
 #define RANDRANGE  5
 #define VERBOSE 0
@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
         cudaMemcpy(d_B, h_B, mem_size_Vect, cudaMemcpyHostToDevice);
 
         // Allocate host memory for the result C = A dot B
-        size_C = size_Vect/ThreadsPerBlock;
+        size_C = 1 + ((size_Vect - 1) / ThreadsPerBlock);
         mem_size_C = sizeof(float) * size_C;
         h_C = (float*) malloc(mem_size_C);
         *h_C = 0;
