@@ -21,7 +21,7 @@ __global__ void dot(float* a, float* b, float* c, unsigned int width) {
     if(index < width) {
         temp[tx] = a[index]*b[index];
     }
-    //__syncthreads();
+
     if(tx == 0) {
         float sum = 0;
         for(int i = 0; i < width && i < ThreadsPerBlock; i++) {
@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
         cudaMemcpy(d_B, h_B, mem_size_Vect, cudaMemcpyHostToDevice);
 
         // Allocate host memory for the result C = A dot B
-        size_C = 1 + size_Vect/ThreadsPerBlock;
+        size_C = size_Vect/ThreadsPerBlock;
         mem_size_C = sizeof(float) * size_C;
         h_C = (float*) malloc(mem_size_C);
         *h_C = 0;
