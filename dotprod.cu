@@ -22,13 +22,19 @@ __global__ void dot(float* a, float* b, float* c, unsigned int width) {
         temp[tx] = a[index]*b[index];
     }
 
-    if(tx == 0) {
-        float sum = 0;
-        for(int i = 0; i < width && i < ThreadsPerBlock; i++) {
-            sum += temp[i];
+    __syncthreads();
+    // Iterative halving sum
+    for(int offset = ThreadsPerBlock >> 1; offset > 0; offset >>= 1) {
+        if(tx < offset) {
+            temp[tx] += temp[tx+offset];
         }
-        c[bx] = sum;
+        __syncthreads();
     }
+
+    if(tx == 0) {
+        c[bx] = temp[0];
+    }
+
 }
 
 // Num subresults is the number of sub- dot products computed in the
@@ -68,6 +74,10 @@ float dotprod(float* a, float* b, unsigned int width) {
 
     // Copy result from device to host
     cudaMemcpy(h_C, d_C, mem_size_C, cudaMemcpyDeviceToHost);
+
+    // Finish adding together the partial sums on the host (linearly).
+    // See the kernel dot product function to see the iterative halving
+    // (i.e., O(log n)) sum.
     for(int i = 1; i < size_C; i++) {
         h_C[0] += h_C[i];
     }
