@@ -7,7 +7,8 @@
 // i.e., test for N = 2^0, 2^1, 2^2... 2^P
 #define P 8
 #define TILE_WIDTH 1
-#define ThreadsPerBlock 1<<5
+#define ThreadsPerBlock 1<<10
+#define BlocksPerGrid ((1<<16)-1)
 #define RANDRANGE  5
 #define VERBOSE 0
 
@@ -75,8 +76,8 @@ int main(int argc, char** argv) {
         cudaMalloc((void**) &d_C, mem_size_C);
 
         // Set up and perform the calculation
-        dim3 blocks_Vect(ThreadsPerBlock, ThreadsPerBlock);
-        dim3 grid_Vect(size_Vect/ TILE_WIDTH, size_Vect/ TILE_WIDTH);
+        dim3 blocks_Vect(ThreadsPerBlock);
+        dim3 grid_Vect(BlocksPerGrid);
 
         dot<<< grid_Vect, blocks_Vect >>>(d_A, d_B, d_C, size_Vect);
         
