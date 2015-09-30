@@ -5,7 +5,7 @@
 
 // P = max power of 2 to test up to
 // i.e., test for N = 2^0, 2^1, 2^2... 2^P
-#define P 15
+#define P 8
 #define TILE_WIDTH 1
 #define ThreadsPerBlock (1<<10)
 #define BlocksPerGrid ((1<<16)-1)
@@ -99,50 +99,82 @@ void randomInit(float* data, int size) {
         data[i] = (float)(rand() % RANDRANGE +1);
 }
 
+// Copies a random row from M to V
+void extractRow(float* V, float* M, int rowlen, int row) {
+    for(int i = 0; i < rowlen; i++) {
+        V[i] = M[row*rowlen + i];
+    }
+}
+
+// Copies a random column from M to V
+void extractCol(float* V, float* M, int collen, int col) {
+    for(int i = 0; i < collen; i++) {
+        V[i] = M[i*collen + col];
+    }
+}
+
 int main(int argc, char** argv) {
 
     unsigned int size_Vect; // Number of elements in vectors
     unsigned int mem_size_Vect;
-    float dotprod_result;
-    float* h_A;
+    unsigned int size_Matrix; // Number of elements in matricies
+    unsigned int mem_size_Matrix;
+
+    float dotprod_expected; // Computed by dotprod -- not by Matrix Mult
+    float dotprod_ABij; // Value of AB at row i column j (random sample)
+    int random_i; // Random i to choose a row
+    int random_j; // Random j to choose a column
+
+    float* h_Row; // Vectors for a Row and Column
+    float* h_Col;
+    float* h_A; // Matricies A and B
     float* h_B;
+    float* h_C; // Matrix multiplication AB result
+
+    // Seed the random number generator
+    srand(0);
 
     // Test for different powers
     for(int p = 1; p <= P; p++) {
+        printf("p=%d (N=2^%d)\n", p, p);
 
-        // Allocate host memory fors vector A and B
+        // Allocate host memory fors vector Row and Col
         size_Vect = 1<<p;
         mem_size_Vect = sizeof(float) * size_Vect;
-        h_A = (float*) malloc(mem_size_Vect);
-        h_B = (float*) malloc(mem_size_Vect);
+        h_Row = (float*) malloc(mem_size_Vect);
+        h_Col = (float*) malloc(mem_size_Vect);
 
-        // Initialize host memory for vectors A and B
-        // We seed twice so that the beginning sequences in the
-        // loop are the same
-        srand(0);
-        randomInit(h_A, size_Vect);
-        srand(1);
-        randomInit(h_B, size_Vect);
+        // Allocate host memory for matricies A and B
+        size_Matrix = size_Vect * size_Vect;
+        mem_size_Matrix = sizeof(float) * size_Matrix;
+        h_A = (float*) malloc(mem_size_Matrix);
+        h_B = (float*) malloc(mem_size_Matrix);
+        
+        // Initialize host memory for matricies Row and Col
+        randomInit(h_A, size_Matrix);
+        randomInit(h_B, size_Matrix);
 
-        // Perform the calculation
-        dotprod_result = dotprod(h_A, h_B, size_Vect);
+        // Initialize host memory for vectors Row and Col
+        // These are random samples
+        random_i = (int)(rand() % size_Vect);
+        random_j = (int)(rand() % size_Vect);
+        extractRow(h_Row, h_A, size_Vect, random_i);
+        extractCol(h_Col, h_B, size_Vect, random_j);
 
-        // Basic test
-        #if VERBOSE
-            printf("A = [ ");
-            for(int i=0; i < size_Vect; i++) {
-                printf("%0.1f ", h_A[i]);
-            }
-            printf("]\nB = [ ");
-            for(int i=0; i < size_Vect; i++) {
-                printf("%0.1f ", h_B[i]);
-            }
-            printf("]\n");
-        #endif
-        printf("C = %0.2f\n", dotprod_result);
+        // Perform the dot products
+        dotprod_expected = dotprod(h_Row, h_Col, size_Vect);
+
+        for(int tile_length = 1; tile_length <= 16; tile_length <<= 1) {
+            // Don't test tiles that are larger than the respective matricies
+            if(size_Vect < tile_length) { break; }
+            printf("    tile_length = %d\n", tile_length);
+        }
 
         // Clean up memory
+        free(h_Row);
+        free(h_Col);
         free(h_A);
         free(h_B);
+        free(h_C);
     }
 }
