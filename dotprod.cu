@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
 #include <math.h>
 
 
@@ -180,6 +181,9 @@ int main(int argc, char** argv) {
     unsigned int size_Matrix; // Number of elements in matricies
     unsigned int mem_size_Matrix;
 
+    clock_t start; // Benchmark
+    clock_t end;
+
     float dotprod_expected; // Computed by dotprod -- not by Matrix Mult
     float dotprod_ABij; // Value of AB at row i column j (random sample)
     int random_i; // Random i to choose a row
@@ -228,7 +232,7 @@ int main(int argc, char** argv) {
         dotprod_expected = dotprod(h_Row, h_Col, size_Vect);
 
         printf("    (row i, col j) = (%d, %d)\n", random_i, random_j);
-        printf("    Expected dot product   = %0.5f...\n",
+        printf("    Expected dot product = %0.5f...\n",
                 dotprod_expected);
 
         #if VERBOSE
@@ -247,17 +251,20 @@ int main(int argc, char** argv) {
             // Don't test tiles that are larger than the respective matricies
             if(size_Vect < tile_width) { break; }
 
-            // Perform the matrix multiplication
+            // Perform the matrix multiplication and benchmarks
             memset(h_C, 0, mem_size_Matrix);
+            start = clock();
             matrixMult(h_A, h_B, h_C, size_Vect, tile_width);
+            end = clock();
 
             // Extract the desired dot product
             dotprod_ABij = h_C[size_Vect*random_i + random_j];
 
             // Print results
             printf("    tile_width = %d\n", tile_width);
-            printf("        MM dot product = %0.5f...\n",
+            printf("        MM dot product   = %0.5f...\n",
                     dotprod_ABij);
+            printf("        Clock cycles = %d\n", end-start);
             #if VERBOSE
                 printf("\n");
                 for (int i=0; i < size_Matrix; i++) {
