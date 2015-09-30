@@ -8,7 +8,6 @@
 #define P 8
 #define ThreadsPerBlock (1<<10)
 #define MAX_TILE_WIDTH 16
-#define RANDRANGE  5
 #define VERBOSE 0
 
 __global__ void dot(float* a, float* b, float* c, unsigned int width) {
@@ -157,7 +156,7 @@ void matrixMult(float* A, float* B, float* C, int width, int tile_width) {
 // Allocates a matrix with random float entries.
 void randomInit(float* data, int size) {
     for (int i = 0; i < size; ++i)
-        data[i] = (float)(rand() % RANDRANGE +1);
+        data[i] = rand() / (float)(RAND_MAX+1.0);
 }
 
 // Copies a random row from M to V
@@ -193,7 +192,8 @@ int main(int argc, char** argv) {
     float* h_C; // Matrix multiplication AB result
 
     // Seed the random number generator
-    srand(0);
+    // Let's use this year for fun
+    srand(2015);
 
     // Test for different powers
     for(int p = 1; p <= P; p++) {
@@ -224,17 +224,6 @@ int main(int argc, char** argv) {
         extractRow(h_Row, h_A, size_Vect, random_i);
         extractCol(h_Col, h_B, size_Vect, random_j);
 
-        #if VERBOSE
-            for (int i=0; i < size_Vect; i++) {
-                        printf("%0.1f ", h_Row[i]);
-            }
-            printf("\n");
-            for (int i=0; i < size_Vect; i++) {
-                printf("%0.1f ", h_Col[i]);
-            }
-            printf("\n");
-        #endif
-
         // Perform the dot product
         dotprod_expected = dotprod(h_Row, h_Col, size_Vect);
 
@@ -243,16 +232,18 @@ int main(int argc, char** argv) {
                 dotprod_expected);
 
         #if VERBOSE
+            printf("    Row i = <  ");
             for (int i=0; i < size_Vect; i++) {
-                        printf("%0.1f ", h_Row[i]);
+                        printf("%0.5f  ", h_Row[i]);
             }
-            printf("\n");
+            printf(">\n");
+            printf("    Col j = <  ");
             for (int i=0; i < size_Vect; i++) {
-                printf("%0.1f ", h_Col[i]);
+                printf("%0.5f  ", h_Col[i]);
             }
-            printf("\n");
+            printf(">\n");
         #endif
-        for(int tile_width = 1; tile_width <= 16; tile_width <<= 1) {
+        for(int tile_width = 1; tile_width <= MAX_TILE_WIDTH; tile_width <<= 1) {
             // Don't test tiles that are larger than the respective matricies
             if(size_Vect < tile_width) { break; }
 
@@ -270,7 +261,9 @@ int main(int argc, char** argv) {
             #if VERBOSE
                 printf("\n");
                 for (int i=0; i < size_Matrix; i++) {
-                    printf("%0.1f : %0.1f  : %0.1f \n", h_A[i], h_B[i], h_C[i] );
+                    if(i % size_Vect > 0) { printf(" "); }
+                    printf("        %0.5f : %0.5f  :  %0.5f %s \n", h_A[i], h_B[i], h_C[i],
+                            i == size_Vect*random_i + random_j ? "*" : "");
                 }
             #endif
         }
