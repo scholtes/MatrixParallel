@@ -17,6 +17,7 @@ __global__ void dot(float* a, float* b, float* c, unsigned int width) {
     int bx = blockIdx.x;
     int tx = threadIdx.x;
     int index = ThreadsPerBlock*bx + tx;
+    int sumrange = width < ThreadsPerBlock ? width : ThreadsPerBlock;
 
     if(index < width) {
         temp[tx] = a[index]*b[index];
@@ -24,7 +25,7 @@ __global__ void dot(float* a, float* b, float* c, unsigned int width) {
 
     __syncthreads();
     // Iterative halving sum
-    for(int offset = ThreadsPerBlock >> 1; offset > 0; offset >>= 1) {
+    for(int offset = sumrange >> 1; offset > 0; offset >>= 1) {
         if(tx < offset) {
             temp[tx] += temp[tx+offset];
         }
