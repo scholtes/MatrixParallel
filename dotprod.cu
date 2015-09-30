@@ -6,9 +6,8 @@
 // P = max power of 2 to test up to
 // i.e., test for N = 2^0, 2^1, 2^2... 2^P
 #define P 8
-#define TILE_WIDTH 1
 #define ThreadsPerBlock (1<<10)
-#define BlocksPerGrid ((1<<16)-1)
+#define MAX_TILE_WIDTH 16
 #define RANDRANGE  5
 #define VERBOSE 0
 
@@ -17,6 +16,7 @@ __global__ void dot(float* a, float* b, float* c, unsigned int width) {
     int bx = blockIdx.x;
     int tx = threadIdx.x;
     int index = ThreadsPerBlock*bx + tx;
+    int sumrange = width < ThreadsPerBlock ? width : ThreadsPerBlock;
 
     if(index < width) {
         temp[tx] = a[index]*b[index];
@@ -24,7 +24,7 @@ __global__ void dot(float* a, float* b, float* c, unsigned int width) {
 
     __syncthreads();
     // Iterative halving sum
-    for(int offset = ThreadsPerBlock >> 1; offset > 0; offset >>= 1) {
+    for(int offset = sumrange >> 1; offset > 0; offset >>= 1) {
         if(tx < offset) {
             temp[tx] += temp[tx+offset];
         }
@@ -35,6 +35,35 @@ __global__ void dot(float* a, float* b, float* c, unsigned int width) {
         c[bx] = temp[0];
     }
 
+}
+
+__global__ void matrixMultKernel(float* Md, float* Nd, float* Pd, int Width, int tile_width) {
+    // Notice that we are allocating MORE shared memory than we
+    // will actually use.  MAX_TILE_WIDTH^2 (each) is allocated
+    // but only tile_width^2 (each) is used for computation.
+    __shared__ float Mds[MAX_TILE_WIDTH][MAX_TILE_WIDTH];
+    __shared__ float Nds[MAX_TILE_WIDTH][MAX_TILE_WIDTH];
+    int bx = blockIdx.x;  int by = blockIdx.y;
+    int tx = threadIdx.x; int ty = threadIdx.y;
+
+    // Identify the row and column of the Pd element to work on
+    int Row = by * tile_width + ty;
+    int Col = bx * tile_width + tx;
+
+    float Pvalue = 0;
+    // Loop over the Md and Nd tiles required to compute the Pd element
+
+    for (int m = 0; m < Width/tile_width; ++m) {
+        // Collaborative loading of Md and Nd tiles into shared memory
+        Mds[ty][tx] = Md[Row*Width + (m*tile_width + tx)];
+        Nds[ty][tx] = Nd[Col + (m*tile_width + ty)*Width];
+        __syncthreads();
+
+        for (int k = 0; k < tile_width; ++k)
+            Pvalue += Mds[ty][k] * Nds[k][tx];
+        __syncthreads();
+    }
+    Pd[Row*Width+Col] = Pvalue;
 }
 
 // Num subresults is the number of sub- dot products computed in the
@@ -78,6 +107,7 @@ float dotprod(float* a, float* b, unsigned int width) {
     // Finish adding together the partial sums on the host (linearly).
     // See the kernel dot product function to see the iterative halving
     // (i.e., O(log n)) sum.
+
     for(int i = 1; i < size_C; i++) {
         h_C[0] += h_C[i];
     }
@@ -91,6 +121,37 @@ float dotprod(float* a, float* b, unsigned int width) {
     cudaFree(d_C);
 
     return ret;
+}
+
+// Multiplies A with B and puts the result in C
+void matrixMult(float* A, float* B, float* C, int width, int tile_width) {
+    // Memory allocation grunt work
+    unsigned int mem_size_Matrix = sizeof(float) * width * width;
+    float* d_A;
+    float* d_B;
+    float* d_C;
+    cudaMalloc((void**) &d_A, mem_size_Matrix);
+    cudaMalloc((void**) &d_B, mem_size_Matrix);
+    cudaMalloc((void**) &d_C, mem_size_Matrix);
+    cudaMemcpy(d_A, A, mem_size_Matrix, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, B, mem_size_Matrix, cudaMemcpyHostToDevice);
+
+    // Set up and perform the actual computation
+    dim3 blocks(tile_width, tile_width);
+    dim3 grid(width / tile_width, width / tile_width);
+
+    matrixMultKernel<<< grid, blocks, 2*tile_width*tile_width >>> (
+            d_A, d_B, d_C, width, tile_width
+    );
+
+    // Copy result from device to host
+    cudaMemcpy(C, d_C, mem_size_Matrix, cudaMemcpyDeviceToHost);
+
+    // Free memory
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_C);
+
 }
 
 // Allocates a matrix with random float entries.
@@ -149,6 +210,8 @@ int main(int argc, char** argv) {
         mem_size_Matrix = sizeof(float) * size_Matrix;
         h_A = (float*) malloc(mem_size_Matrix);
         h_B = (float*) malloc(mem_size_Matrix);
+        h_C = (float*) malloc(mem_size_Matrix);
+        memset(h_C, 0, mem_size_Matrix);
         
         // Initialize host memory for matricies Row and Col
         randomInit(h_A, size_Matrix);
@@ -161,13 +224,55 @@ int main(int argc, char** argv) {
         extractRow(h_Row, h_A, size_Vect, random_i);
         extractCol(h_Col, h_B, size_Vect, random_j);
 
-        // Perform the dot products
+        #if VERBOSE
+            for (int i=0; i < size_Vect; i++) {
+                        printf("%0.1f ", h_Row[i]);
+            }
+            printf("\n");
+            for (int i=0; i < size_Vect; i++) {
+                printf("%0.1f ", h_Col[i]);
+            }
+            printf("\n");
+        #endif
+
+        // Perform the dot product
         dotprod_expected = dotprod(h_Row, h_Col, size_Vect);
 
-        for(int tile_length = 1; tile_length <= 16; tile_length <<= 1) {
+        printf("    (row i, col j) = (%d, %d)\n", random_i, random_j);
+        printf("    Expected dot product   = %0.5f...\n",
+                dotprod_expected);
+
+        #if VERBOSE
+            for (int i=0; i < size_Vect; i++) {
+                        printf("%0.1f ", h_Row[i]);
+            }
+            printf("\n");
+            for (int i=0; i < size_Vect; i++) {
+                printf("%0.1f ", h_Col[i]);
+            }
+            printf("\n");
+        #endif
+        for(int tile_width = 1; tile_width <= 16; tile_width <<= 1) {
             // Don't test tiles that are larger than the respective matricies
-            if(size_Vect < tile_length) { break; }
-            printf("    tile_length = %d\n", tile_length);
+            if(size_Vect < tile_width) { break; }
+
+            // Perform the matrix multiplication
+            memset(h_C, 0, mem_size_Matrix);
+            matrixMult(h_A, h_B, h_C, size_Vect, tile_width);
+
+            // Extract the desired dot product
+            dotprod_ABij = h_C[size_Vect*random_i + random_j];
+
+            // Print results
+            printf("    tile_width = %d\n", tile_width);
+            printf("        MM dot product = %0.5f...\n",
+                    dotprod_ABij);
+            #if VERBOSE
+                printf("\n");
+                for (int i=0; i < size_Matrix; i++) {
+                    printf("%0.1f : %0.1f  : %0.1f \n", h_A[i], h_B[i], h_C[i] );
+                }
+            #endif
         }
 
         // Clean up memory
